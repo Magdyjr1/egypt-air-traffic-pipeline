@@ -1,0 +1,22 @@
+# --- Python & Airflow System Files ---
+__pycache__/
+*.pyc
+logs/
+plugins/
+
+# --- Large Data Files (GitHub Limits) ---
+dags/data/
+*.parquet
+
+# --- Security (Crucial) ---
+.env
+
+# --- Virtual Environments ---
+.venv
+venv/
+
+# --- IDE & OS Junk (Optional but Professional) ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.

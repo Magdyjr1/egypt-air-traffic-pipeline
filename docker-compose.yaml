@@ -1,0 +1,109 @@
+version: '3'
+
+# ==========================================
+# Egypt Air Traffic Surveillance Pipeline
+# Infrastructure Configuration
+# ==========================================
+
+services:
+  # 1. Metadata Database (Airflow Internal DB)
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    # Port 5434 to allow Airflow to coexist with Data Warehouse (5432)
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+
+  # 2. Initialization Service
+  airflow-init:
+    build: .
+    user: "${AIRFLOW_UID:-50000}:0"
+    # Network fixes for WSL2
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__FERNET_KEY=FB01D778d8a83731ee_w3_Q1-233333333333333333=
+    depends_on:
+      - postgres
+    command: bash -c "airflow db migrate && airflow users create --username admin --password admin --firstname Peter --lastname Parker --role Admin --email spiderman@superhero.org || true"
+
+  # 3. Webserver (UI)
+  airflow-webserver:
+    build: .
+    user: "${AIRFLOW_UID:-50000}:0"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__FERNET_KEY=FB01D778d8a83731ee_w3_Q1-233333333333333333=
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      # Stability Settings
+      - AIRFLOW__WEBSERVER__GUNICORN_TIMEOUT=600 
+      - AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT=300
+      - AIRFLOW__WEBSERVER__WORKERS=2
+      - AIRFLOW__CORE__DAG_PROCESSOR_TIMEOUT=300 
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    ports:
+      - "8085:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: airflow webserver
+
+  # 4. Scheduler (The Engine)
+  airflow-scheduler:
+    build: .
+    user: "${AIRFLOW_UID:-50000}:0"
+    # Ensuring connectivity to FlightRadar API & Host DB
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__FERNET_KEY=FB01D778d8a83731ee_w3_Q1-233333333333333333=
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__DAG_PROCESSOR_TIMEOUT=300
+      - AIRFLOW__SCHEDULER__DAG_FILE_PROCESSOR_TIMEOUT=300 
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: airflow scheduler
+
+  # 5. BI Dashboard (Metabase)
+  metabase:
+    image: metabase/metabase
+    ports:
+      - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - MB_DB_FILE=/metabase-data/metabase.db
+    volumes:
+      - metabase-data:/metabase-data
+
+volumes:
+  postgres-db-volume:
+  metabase-data:
